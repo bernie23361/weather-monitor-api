@@ -2,3 +2,7 @@ requests
 pandas
 matplotlib
 pytz
+scipy
+geopandas
+shapely
+descartes
