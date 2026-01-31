@@ -31,7 +31,7 @@ jobs:
     - name: Install Chinese Fonts
       run: |
         sudo apt-get update
-        sudo apt-get install -y fonts-noto-cjk
+        sudo apt-get install -y fonts-wqy-zenhei
 
     - name: Install dependencies
       run: |
