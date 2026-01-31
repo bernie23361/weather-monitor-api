@@ -14,7 +14,6 @@ from datetime import datetime
 import pytz
 import math
 import warnings
-import time
 
 # 忽略警告
 warnings.filterwarnings("ignore")
@@ -36,11 +35,10 @@ def log(msg):
 # =================極速遮罩=================
 
 def fast_mask_grid(grid_x, grid_y, geo_df):
-    log("啟動極速遮罩運算...")
+    log("啟動遮罩運算...")
     points = np.vstack((grid_x.flatten(), grid_y.flatten())).T
     final_mask = np.zeros(len(points), dtype=bool)
     
-    # 優化：直接迭代幾何物件
     for geom in geo_df.geometry:
         if geom.geom_type == 'Polygon':
             geoms = [geom]
@@ -50,9 +48,8 @@ def fast_mask_grid(grid_x, grid_y, geo_df):
             continue
             
         for poly in geoms:
-            # Bounding Box 快速篩選 (加速關鍵)
+            # 邊界檢查 (加速)
             minx, miny, maxx, maxy = poly.bounds
-            # 擴大一點邊界以免切到邊緣
             if maxx < 119 or minx > 123 or maxy < 21 or miny > 27:
                 continue
 
@@ -104,11 +101,10 @@ def process_data(raw_data):
 
                 data = {"name": item["StationName"], "lat": lat, "lon": lon, "temp": temp, "at": at, "city": city, "town": item["GeoInfo"]["TownName"]}
                 
-                # 分流邏輯
                 if city in km_counties:
                     km_matsu.append(data)
                 else:
-                    # 這裡放寬範圍，確保澎湖(約119.5)能被納入 mainland 進行插值
+                    # 放寬範圍以包含澎湖
                     if 119.0 <= lon <= 122.5 and 21.5 <= lat <= 26.0:
                         mainland.append(data)
             except: continue
@@ -120,16 +116,14 @@ def generate_heatmap(df_main, df_km):
     
     taiwan_map = gpd.read_file(MAP_URL)
     
-    # [升級] 解析度提升至 800x800，讓邊緣更細緻
-    # 範圍微調以涵蓋澎湖
+    # [修正] 解析度設為 400x400 (兼顧畫質與速度)
     min_lon, max_lon = 119.0, 122.2
     min_lat, max_lat = 21.8, 25.4
-    grid_x, grid_y = np.mgrid[min_lon:max_lon:800j, min_lat:max_lat:800j]
+    grid_x, grid_y = np.mgrid[min_lon:max_lon:400j, min_lat:max_lat:400j]
     
-    # ================= 關鍵技術升級：混合插值法 =================
-    log("執行混合插值 (Hybrid Interpolation)...")
+    log("執行混合插值 (Hybrid)...")
     
-    # 1. Cubic (平滑層)：畫出漂亮的漸層，但離島會是空白(NaN)
+    # 1. Cubic (平滑層)
     grid_cubic = griddata(
         (df_main['lon'], df_main['lat']), 
         df_main['at'], 
@@ -138,7 +132,7 @@ def generate_heatmap(df_main, df_km):
         fill_value=np.nan
     )
     
-    # 2. Nearest (基底層)：填補所有空隙，確保澎湖有顏色
+    # 2. Nearest (基底層 - 修補離島)
     grid_nearest = griddata(
         (df_main['lon'], df_main['lat']), 
         df_main['at'], 
@@ -146,15 +140,12 @@ def generate_heatmap(df_main, df_km):
         method='nearest'
     )
     
-    # 3. 合併：若 Cubic 是 NaN (例如澎湖或邊緣)，就用 Nearest 補上
-    # 這樣既有平滑的漸層，又不會讓離島消失
+    # 合併圖層
     mask_nan = np.isnan(grid_cubic)
     grid_cubic[mask_nan] = grid_nearest[mask_nan]
     grid_z = grid_cubic
 
-    # ==========================================================
-
-    log("應用地圖遮罩...")
+    log("應用遮罩...")
     mask = fast_mask_grid(grid_x, grid_y, taiwan_map)
     grid_z[~mask] = np.nan
 
@@ -163,13 +154,11 @@ def generate_heatmap(df_main, df_km):
     levels = np.linspace(0, 40, 200)
     norm = Normalize(vmin=0, vmax=40)
     
-    # 使用 contourf 繪製平滑漸層
+    # 繪圖
     contour = ax.contourf(grid_x, grid_y, grid_z, levels=levels, cmap=cmap_custom, norm=norm, extend='both')
-    
-    # 繪製縣市框線
     taiwan_map.plot(ax=ax, facecolor='none', edgecolor='black', linewidth=0.5, alpha=0.5, zorder=2)
     
-    # 繪製金馬圓點
+    # 金馬圓點
     if not df_km.empty:
         km_colors = cmap_custom(norm(df_km['at']))
         ax.scatter(df_km['lon'], df_km['lat'], c=km_colors, s=150, edgecolor='black', linewidth=1, zorder=5)
@@ -185,12 +174,11 @@ def generate_heatmap(df_main, df_km):
     cbar.set_ticks(np.arange(0, 41, 5))
     cbar.ax.tick_params(labelsize=10)
     
-    # 設定顯示範圍
     ax.set_xlim(118.0, 122.3)
     ax.set_ylim(21.7, 26.5)
     
     plt.savefig('apparent_temp_map.png', dpi=150, bbox_inches='tight')
-    log("圖表已更新: apparent_temp_map.png")
+    log("圖表已更新")
 
 def save_json(df_main, df_km):
     full_df = pd.concat([df_main, df_km], ignore_index=True)
@@ -204,13 +192,11 @@ def save_json(df_main, df_km):
     }
     with open('data_detailed.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    log("數據已更新: data_detailed.json")
+    log("JSON 已更新")
 
 if __name__ == "__main__":
     log("程式啟動")
-    
-    # [強制繪圖模式] 方便你驗收
-    should_draw_map = True 
+    should_draw_map = True # 強制繪圖
 
     try:
         raw = fetch_data()
