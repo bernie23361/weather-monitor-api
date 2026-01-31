@@ -42,6 +42,5 @@ jobs:
       run: |
         git config --global user.name 'GitHub Action'
         git config --global user.email 'action@github.com'
-        # 這裡會強制加入新生成的兩個檔案
         git add data_detailed.json apparent_temp_map.png
         git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update map data [skip ci]" && git push)
