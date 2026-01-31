@@ -3,13 +3,9 @@ import requests
 import json
 import pandas as pd
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.path as mpl_path
 from matplotlib.colors import LinearSegmentedColormap, Normalize
-from scipy.interpolate import griddata
 import geopandas as gpd
-from shapely.geometry import Point, Polygon, MultiPolygon
 from datetime import datetime
 import pytz
 import math
@@ -32,33 +28,6 @@ cmap_custom = LinearSegmentedColormap.from_list("taiwan_temp", custom_colors, N=
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
-# =================極速遮罩=================
-
-def fast_mask_grid(grid_x, grid_y, geo_df):
-    log("啟動遮罩運算...")
-    points = np.vstack((grid_x.flatten(), grid_y.flatten())).T
-    final_mask = np.zeros(len(points), dtype=bool)
-    
-    for geom in geo_df.geometry:
-        if geom.geom_type == 'Polygon':
-            geoms = [geom]
-        elif geom.geom_type == 'MultiPolygon':
-            geoms = geom.geoms
-        else:
-            continue
-            
-        for poly in geoms:
-            # 邊界檢查 (加速)
-            minx, miny, maxx, maxy = poly.bounds
-            if maxx < 119 or minx > 123 or maxy < 21 or miny > 27:
-                continue
-
-            path = mpl_path.Path(np.array(poly.exterior.coords))
-            mask = path.contains_points(points)
-            final_mask = final_mask | mask
-            
-    return final_mask.reshape(grid_x.shape)
-
 # =================功能函數=================
 
 def calculate_apparent_temp(temp, humid, wind_speed):
@@ -74,6 +43,7 @@ def fetch_data():
     log("下載氣象資料...")
     try:
         url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0001-001?Authorization={CWA_KEY}&format=JSON"
+        # 增加 timeout 確保不會卡住
         resp = requests.get(url, timeout=20)
         return resp.json()
     except Exception as e:
@@ -82,8 +52,7 @@ def fetch_data():
 
 def process_data(raw_data):
     log("處理數據中...")
-    mainland, km_matsu = [], []
-    km_counties = ["金門縣", "連江縣"]
+    stations = []
 
     if raw_data and "records" in raw_data and "Station" in raw_data["records"]:
         for item in raw_data["records"]["Station"]:
@@ -93,102 +62,97 @@ def process_data(raw_data):
                 temp = float(item["WeatherElement"]["AirTemperature"])
                 humid = float(item["WeatherElement"]["RelativeHumidity"])
                 wind = float(item["WeatherElement"]["WindSpeed"])
-                city = item["GeoInfo"]["CountyName"]
                 
+                # 基本過濾
                 if temp < -20 or temp > 50 or humid < 0 or humid > 100: continue
+                
                 at = calculate_apparent_temp(temp, humid, wind)
                 if at is None: continue
 
-                data = {"name": item["StationName"], "lat": lat, "lon": lon, "temp": temp, "at": at, "city": city, "town": item["GeoInfo"]["TownName"]}
-                
-                if city in km_counties:
-                    km_matsu.append(data)
-                else:
-                    # 放寬範圍以包含澎湖
-                    if 119.0 <= lon <= 122.5 and 21.5 <= lat <= 26.0:
-                        mainland.append(data)
+                stations.append({
+                    "name": item["StationName"], 
+                    "lat": lat, 
+                    "lon": lon, 
+                    "temp": temp, 
+                    "at": at, 
+                    "city": item["GeoInfo"]["CountyName"], 
+                    "town": item["GeoInfo"]["TownName"]
+                })
             except: continue
             
-    return pd.DataFrame(mainland), pd.DataFrame(km_matsu)
+    return pd.DataFrame(stations)
 
-def generate_heatmap(df_main, df_km):
-    log("開始繪圖程序...")
+def generate_dots_map(df):
+    log("繪製圓點地圖...")
     
+    # 讀取地圖
     taiwan_map = gpd.read_file(MAP_URL)
     
-    # [修正] 解析度設為 400x400 (兼顧畫質與速度)
-    min_lon, max_lon = 119.0, 122.2
-    min_lat, max_lat = 21.8, 25.4
-    grid_x, grid_y = np.mgrid[min_lon:max_lon:400j, min_lat:max_lat:400j]
-    
-    log("執行混合插值 (Hybrid)...")
-    
-    # 1. Cubic (平滑層)
-    grid_cubic = griddata(
-        (df_main['lon'], df_main['lat']), 
-        df_main['at'], 
-        (grid_x, grid_y), 
-        method='cubic', 
-        fill_value=np.nan
-    )
-    
-    # 2. Nearest (基底層 - 修補離島)
-    grid_nearest = griddata(
-        (df_main['lon'], df_main['lat']), 
-        df_main['at'], 
-        (grid_x, grid_y), 
-        method='nearest'
-    )
-    
-    # 合併圖層
-    mask_nan = np.isnan(grid_cubic)
-    grid_cubic[mask_nan] = grid_nearest[mask_nan]
-    grid_z = grid_cubic
-
-    log("應用遮罩...")
-    mask = fast_mask_grid(grid_x, grid_y, taiwan_map)
-    grid_z[~mask] = np.nan
-
-    log("輸出圖片...")
     fig, ax = plt.subplots(figsize=(10, 12))
-    levels = np.linspace(0, 40, 200)
+    
+    # 1. 繪製底圖 (淺灰色陸地，深灰色邊框)
+    taiwan_map.plot(ax=ax, facecolor='#f5f5f5', edgecolor='#999999', linewidth=0.8, zorder=1)
+    
+    # 設定顏色規範
     norm = Normalize(vmin=0, vmax=40)
     
-    # 繪圖
-    contour = ax.contourf(grid_x, grid_y, grid_z, levels=levels, cmap=cmap_custom, norm=norm, extend='both')
-    taiwan_map.plot(ax=ax, facecolor='none', edgecolor='black', linewidth=0.5, alpha=0.5, zorder=2)
-    
-    # 金馬圓點
-    if not df_km.empty:
-        km_colors = cmap_custom(norm(df_km['at']))
-        ax.scatter(df_km['lon'], df_km['lat'], c=km_colors, s=150, edgecolor='black', linewidth=1, zorder=5)
-        for _, row in df_km.iterrows():
-            if row['name'] in ['金門', '馬祖', '東引']:
-                 ax.text(row['lon']+0.06, row['lat'], f"{row['name']}\n{row['at']:.1f}", fontsize=11, fontweight='bold', zorder=6, 
-                         bbox=dict(facecolor='white', alpha=0.6, pad=1, edgecolor='none'))
+    # 2. 繪製測站圓點 (Scatter Plot)
+    # s=50: 圓點大小
+    # edgecolor='black': 圓點加上黑色細邊框，增加對比度
+    sc = ax.scatter(
+        df['lon'], df['lat'], 
+        c=df['at'], 
+        cmap=cmap_custom, 
+        norm=norm, 
+        s=60, 
+        edgecolor='black', 
+        linewidth=0.6, 
+        alpha=0.9,
+        zorder=5
+    )
 
+    # 3. 標示前三高溫的站點
+    top3 = df.nlargest(3, 'at')
+    for i, (_, row) in enumerate(top3.iterrows()):
+        # 稍微錯開文字位置避免重疊
+        offset_y = 0.05 + (i * 0.02)
+        ax.text(
+            row['lon'], row['lat'] + offset_y, 
+            f"{row['name']}\n{row['at']:.1f}", 
+            fontsize=10, fontweight='bold', ha='center', zorder=10,
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='black', boxstyle='round,pad=0.2')
+        )
+        # 畫一條細線連到點
+        ax.plot([row['lon'], row['lon']], [row['lat'], row['lat'] + offset_y], color='black', linewidth=0.5, zorder=9)
+
+    # 標題與修飾
     current_time = datetime.now(TP_TZ).strftime('%Y-%m-%d %H:%M')
-    plt.title(f"全臺體感溫度分佈圖\n{current_time}", fontsize=20, fontweight='bold')
+    plt.title(f"全臺體感溫度監測網\n{current_time}", fontsize=20, fontweight='bold')
     
-    cbar = plt.colorbar(contour, ax=ax, fraction=0.03, pad=0.04)
+    # Colorbar
+    cbar = plt.colorbar(sc, ax=ax, fraction=0.03, pad=0.04)
+    cbar.set_label('體感溫度 (°C)', fontsize=12)
     cbar.set_ticks(np.arange(0, 41, 5))
-    cbar.ax.tick_params(labelsize=10)
     
+    # 設定顯示範圍 (包含金馬與本島)
     ax.set_xlim(118.0, 122.3)
     ax.set_ylim(21.7, 26.5)
     
+    # 移除經緯度刻度 (讓畫面更乾淨)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
     plt.savefig('apparent_temp_map.png', dpi=150, bbox_inches='tight')
-    log("圖表已更新")
+    log("圖表已更新: apparent_temp_map.png")
 
-def save_json(df_main, df_km):
-    full_df = pd.concat([df_main, df_km], ignore_index=True)
+def save_json(df):
     output = {
         "meta": {
             "updated_at": datetime.now(TP_TZ).strftime('%Y-%m-%d %H:%M:%S'),
             "source": "CWA Auto Stations",
-            "count": len(full_df)
+            "count": len(df)
         },
-        "data": full_df[['city', 'town', 'name', 'temp', 'at', 'lat', 'lon']].to_dict(orient='records')
+        "data": df[['city', 'town', 'name', 'temp', 'at', 'lat', 'lon']].to_dict(orient='records')
     }
     with open('data_detailed.json', 'w', encoding='utf-8') as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
@@ -196,18 +160,14 @@ def save_json(df_main, df_km):
 
 if __name__ == "__main__":
     log("程式啟動")
-    should_draw_map = True # 強制繪圖
-
+    
     try:
         raw = fetch_data()
         if raw:
-            df_main, df_km = process_data(raw)
-            if not df_main.empty:
-                save_json(df_main, df_km)
-                if should_draw_map:
-                    generate_heatmap(df_main, df_km)
-                else:
-                    log("跳過繪圖")
+            df = process_data(raw)
+            if not df.empty:
+                save_json(df)
+                generate_dots_map(df)
             else:
                 log("無有效資料")
         else:
