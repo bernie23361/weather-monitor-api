@@ -13,10 +13,9 @@ TP_TZ = pytz.timezone('Asia/Taipei')
 CWA_KEY = os.environ.get("CWA_KEY")
 
 # ==========================================
-# [新增] 設定中文字型顯示
-# 告訴 matplotlib 使用剛剛安裝的 Noto Sans CJK TC 字型
-plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC']
-# 解決負號 '-' 顯示為方塊的問題
+# [修改] 設定中文字型
+# 使用相容性更好的 "WenQuanYi Zen Hei"
+plt.rcParams['font.family'] = ['WenQuanYi Zen Hei']
 plt.rcParams['axes.unicode_minus'] = False
 # ==========================================
 
