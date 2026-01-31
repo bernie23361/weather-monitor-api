@@ -27,9 +27,17 @@ jobs:
       with:
         python-version: '3.9'
 
+    # [新增此步驟] 安裝開源中文字型 (Noto Sans CJK)
+    - name: Install Chinese Fonts
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fonts-noto-cjk
+
     - name: Install dependencies
       run: |
         pip install -r requirements.txt
+    
+    # ... (後面的步驟保持不變) ...
 
     - name: Run Monitor Script
       env:
