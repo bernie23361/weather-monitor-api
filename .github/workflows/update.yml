@@ -1,0 +1,45 @@
+name: Weather Monitor Cron
+
+# 設定觸發時機
+on:
+  schedule:
+    - cron: '5 * * * *' # 為了避開整點塞車，我們設定每小時的第 5 分鐘執行
+  workflow_dispatch: # 讓我們可以手動按按鈕測試
+
+permissions:
+  contents: write # 再次確保有寫入權限
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    # 設定時區，確保 log 時間正確
+    env:
+      TZ: Asia/Taipei
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+
+    - name: Run Monitor Script
+      env:
+        CWA_KEY: ${{ secrets.CWA_KEY }} # 這裡會自動讀取你剛剛存的 Secret
+      run: python main.py
+
+    - name: Commit and Push changes
+      run: |
+        git config --global user.name 'GitHub Action'
+        git config --global user.email 'action@github.com'
+        # 檢查是否有檔案變動
+        git add data.json weather_chart.png
+        # 如果有變動才 Commit，沒變動就跳過 (避免錯誤)
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update weather data [skip ci]" && git push)
