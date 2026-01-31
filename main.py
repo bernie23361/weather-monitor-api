@@ -12,12 +12,19 @@ TP_TZ = pytz.timezone('Asia/Taipei')
 # 從環境變數取得 API Key
 CWA_KEY = os.environ.get("CWA_KEY")
 
+# ==========================================
+# [新增] 設定中文字型顯示
+# 告訴 matplotlib 使用剛剛安裝的 Noto Sans CJK TC 字型
+plt.rcParams['font.sans-serif'] = ['Noto Sans CJK TC']
+# 解決負號 '-' 顯示為方塊的問題
+plt.rcParams['axes.unicode_minus'] = False
+# ==========================================
+
 def fetch_data():
     """從氣象署 API 抓取資料"""
     print("正在連線至氣象署 API...")
     
-    # [修改點] 1. 改用 O-A0003-001 (局屬氣象站 - 現在天氣觀測報告)
-    # 備註：局屬站數量較少但較為核心 (如台北、台中、高雄等)
+    # 1. 改用 O-A0003-001 (局屬氣象站 - 現在天氣觀測報告)
     weather_url = f"https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001?Authorization={CWA_KEY}&format=JSON"
     w_resp = requests.get(weather_url)
     w_data = w_resp.json()
@@ -32,21 +39,17 @@ def fetch_data():
 def process_weather(w_data):
     """處理天氣資料"""
     stations = []
-    # 局屬氣象站通常位於主要城市，我們可以直接列出想抓的站名
+    # 局屬氣象站目標清單
     target_stations = ["臺北", "基隆", "板橋", "新屋", "新竹", "臺中", "嘉義", "臺南", "高雄", "恆春", "花蓮", "臺東", "澎湖", "金門", "馬祖"]
     
     if "records" in w_data and "Station" in w_data["records"]:
         for item in w_data["records"]["Station"]:
             name = item["StationName"]
             
-            # 如果是目標城市之一
             if name in target_stations:
                 try:
-                    # 抓取溫度與濕度
                     temp = float(item["WeatherElement"]["AirTemperature"])
                     humid = float(item["WeatherElement"]["RelativeHumidity"])
-                    
-                    # [新增] 抓取該筆資料的觀測時間，方便確認是否即時
                     obs_time = item["ObsTime"]["DateTime"] 
                     
                     stations.append({
@@ -59,24 +62,26 @@ def process_weather(w_data):
                     continue
     
     df = pd.DataFrame(stations)
-    # 依緯度或自定義順序可能會比較好看，這裡先依溫度排序
     if not df.empty:
+        # 依溫度排序
         df = df.sort_values(by='temp', ascending=False)
     return df
 
 def draw_chart(df):
-    """繪製氣溫長條圖"""
+    """繪製氣溫長條圖 (全中文版)"""
     if df.empty:
         print("無資料可繪圖")
         return
 
-    plt.figure(figsize=(12, 6)) # 加寬一點
+    plt.figure(figsize=(12, 6))
     
-    bars = plt.bar(df['city'], df['temp'], color='#e67e22', alpha=0.8) # 換個顏色區分新版
+    # 繪製長條圖
+    bars = plt.bar(df['city'], df['temp'], color='#e67e22', alpha=0.8)
     
-    plt.title('Real-time Temperature (Manned Stations)', fontsize=16)
-    plt.xlabel('Station', fontsize=12)
-    plt.ylabel('Temperature (°C)', fontsize=12)
+    # [修改] 直接使用中文標題與標籤
+    plt.title('即時氣溫監測 (局屬氣象站)', fontsize=18)
+    plt.xlabel('測站名稱', fontsize=12)
+    plt.ylabel('攝氏溫度 (°C)', fontsize=12)
     plt.ylim(0, 40)
     plt.grid(axis='y', linestyle='--', alpha=0.3)
     
@@ -87,23 +92,16 @@ def draw_chart(df):
                 f'{height}',
                 ha='center', va='bottom', fontsize=9)
 
-    # 處理中文字型問題 (對應表)
-    city_map = {
-        "臺北": "Taipei", "基隆": "Keelung", "板橋": "Banqiao", "新屋": "Xinwu", 
-        "新竹": "Hsinchu", "臺中": "Taichung", "嘉義": "Chiayi", "臺南": "Tainan", 
-        "高雄": "Kaohsiung", "恆春": "Hengchun", "花蓮": "Hualien", "臺東": "Taitung",
-        "澎湖": "Penghu", "金門": "Kinmen", "馬祖": "Matsu"
-    }
-    english_labels = [city_map.get(x, x) for x in df['city']]
-    plt.xticks(range(len(english_labels)), english_labels, rotation=45) # 稍微旋轉標籤以免重疊
+    # [修改] 直接使用中文站名，不需要再對照英文了
+    plt.xticks(rotation=45)
 
-    plt.tight_layout() # 自動調整版面
+    plt.tight_layout()
     plt.savefig('weather_chart.png', dpi=100)
-    print("圖表繪製完成: weather_chart.png")
+    print("圖表繪製完成: weather_chart.png (中文版)")
 
 def save_json(df, e_data):
     """整合資料並存檔"""
-    
+    # ... (這部分與上次相同，省略註解以節省篇幅) ...
     latest_eq = {}
     if "records" in e_data and "Earthquake" in e_data["records"]:
         try:
@@ -118,12 +116,11 @@ def save_json(df, e_data):
         except IndexError:
             pass
 
-    # [新增] 加上資料來源標記，方便前端 Debug
     output = {
         "meta": {
             "updated_at": datetime.now(TP_TZ).strftime('%Y-%m-%d %H:%M:%S'),
-            "source": "O-A0003-001 (Manned Stations)",
-            "note": "Data updates every 30 mins"
+            "source": "O-A0003-001 (局屬氣象站)",
+            "note": "每 30 分鐘更新"
         },
         "weather_list": df.to_dict(orient='records'),
         "earthquake": latest_eq
