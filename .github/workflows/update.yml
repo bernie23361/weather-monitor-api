@@ -1,10 +1,11 @@
 name: Weather Monitor Cron
 
-# 設定觸發時機
 on:
   schedule:
-    - cron: '5 * * * *' # 為了避開整點塞車，我們設定每小時的第 5 分鐘執行
-  workflow_dispatch: # 讓我們可以手動按按鈕測試
+    # 說明：每 30 分鐘執行一次 (例如 8:05, 8:35, 9:05...)
+    # 格式為 '分 時 日 月 週'
+    - cron: '*/30 * * * *' 
+  workflow_dispatch:
 
 permissions:
   contents: write # 再次確保有寫入權限
