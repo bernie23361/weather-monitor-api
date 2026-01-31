@@ -1,0 +1,47 @@
+{
+  "updated_at": "2026-01-31 08:04:54",
+  "weather_list": [
+    {
+      "city": "臺東",
+      "temp": 19.9,
+      "humid": 84.0
+    },
+    {
+      "city": "花蓮",
+      "temp": 18.3,
+      "humid": 89.0
+    },
+    {
+      "city": "高雄",
+      "temp": 18.1,
+      "humid": 91.0
+    },
+    {
+      "city": "臺北",
+      "temp": 18.0,
+      "humid": 88.0
+    },
+    {
+      "city": "臺中",
+      "temp": 17.9,
+      "humid": 86.0
+    },
+    {
+      "city": "板橋",
+      "temp": 17.1,
+      "humid": 90.0
+    },
+    {
+      "city": "桃園",
+      "temp": -99.0,
+      "humid": -99.0
+    }
+  ],
+  "earthquake": {
+    "time": "2026-01-27 02:48:37",
+    "magnitude": 4.6,
+    "depth": 23.9,
+    "location": "屏東縣政府南南東方  103.2  公里 (位於屏東縣近海)",
+    "img": "https://scweb.cwa.gov.tw/webdata/OLDEQ/202601/2026012702483746011_H.png"
+  }
+}
